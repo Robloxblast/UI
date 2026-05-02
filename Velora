@@ -1,10 +1,20 @@
 -- NaruUI v3 — made by Naru
+-- Fixes: loading screen title/subtitle configurable, confirm close dialog,
+--        single-instance guard, config save/load JSON, layout polish
 
 local NaruUI = {}
 local tween  = game:GetService("TweenService")
 local input  = game:GetService("UserInputService")
 local runner = game:GetService("RunService")
 local http   = game:GetService("HttpService")
+
+-- ── Single-instance guard ────────────────────────────────────────────────────
+-- If NaruUI is already running (screen exists) we skip re-running it.
+if _G.__NaruUI_Running then
+	warn("[NaruUI] Already running — ignoring duplicate load.")
+	return {}
+end
+_G.__NaruUI_Running = true
 
 local C = {
 	bg        = Color3.fromRGB(13,13,26),
@@ -18,12 +28,13 @@ local C = {
 	textDim   = Color3.fromRGB(90,58,128),
 	green     = Color3.fromRGB(120,255,160),
 	red       = Color3.fromRGB(255,96,96),
+	yellow    = Color3.fromRGB(255,210,60),
 }
 
-local flags     = {}   -- flag -> current value
-local saveItems = {}   -- list of {flag, setter} for config load
+local flags     = {}
+local saveItems = {}
 
--- ─── helpers ────────────────────────────────────────────────────────────────
+-- ─── helpers ─────────────────────────────────────────────────────────────────
 
 local function newInst(cls, props)
 	local o = Instance.new(cls)
@@ -66,19 +77,29 @@ local function saveConfig()
 	local data = {}
 	for flag, val in pairs(flags) do
 		local t = type(val)
-		if t=="boolean" or t=="number" or t=="string" or t=="table" then
+		if t=="boolean" or t=="number" or t=="string" then
 			data[flag] = val
+		elseif t=="table" then
+			-- only plain string-array tables (dropdown multi-select)
+			local safe = true
+			for _,v in ipairs(val) do
+				if type(v)~="string" then safe=false; break end
+			end
+			if safe then data[flag]=val end
 		end
 	end
-	local ok = pcall(function() writefile(CONFIG_FILE, http:JSONEncode(data)) end)
+	local ok, err = pcall(function()
+		writefile(CONFIG_FILE, http:JSONEncode(data))
+	end)
+	if not ok then warn("[NaruUI] Save failed:", err) end
 	return ok
 end
 
 local function loadConfig()
 	local ok, raw = pcall(function() return readfile(CONFIG_FILE) end)
-	if not ok or not raw then return nil end
+	if not ok or not raw or raw=="" then return nil end
 	local ok2, data = pcall(function() return http:JSONDecode(raw) end)
-	if not ok2 then return nil end
+	if not ok2 or type(data)~="table" then return nil end
 	return data
 end
 
@@ -119,7 +140,7 @@ local function buildNotifSystem(screen)
 			tween:Create(oldest.frame, TweenInfo.new(0.2,Enum.EasingStyle.Quad,Enum.EasingDirection.In), {
 				Position = UDim2.new(1,20,1,oldest.frame.Position.Y.Offset)
 			}):Play()
-			task.delay(0.22, function() oldest.frame:Destroy() end)
+			task.delay(0.22, function() if oldest.frame.Parent then oldest.frame:Destroy() end end)
 			removeEntry(oldest)
 		end
 
@@ -140,7 +161,6 @@ local function buildNotifSystem(screen)
 			BorderSizePixel=0, ZIndex=101, Parent=notif,
 		}); corner(8,iconBox); stroke(col,1,iconBox)
 
-		-- FIXED: full circle icon (corner(99) = circle)
 		local ic=newInst("Frame", {
 			Size=UDim2.new(0,18,0,18), Position=UDim2.new(0.5,-9,0.5,-9),
 			BackgroundColor3=col, BorderSizePixel=0, ZIndex=102, Parent=iconBox,
@@ -185,7 +205,79 @@ local function buildNotifSystem(screen)
 	end
 end
 
+-- ─── confirm dialog ──────────────────────────────────────────────────────────
+
+local function buildConfirmDialog(screen, onYes, onNo)
+	-- Dim overlay
+	local overlay = newInst("Frame", {
+		Size=UDim2.new(1,0,1,0),
+		BackgroundColor3=Color3.fromRGB(0,0,0),
+		BackgroundTransparency=0.5,
+		BorderSizePixel=0, ZIndex=300, Parent=screen,
+	})
+
+	local box = newInst("Frame", {
+		Size=UDim2.new(0,280,0,130),
+		Position=UDim2.new(0.5,-140,0.5,-65),
+		BackgroundColor3=Color3.fromRGB(12,10,24),
+		BackgroundTransparency=1,
+		BorderSizePixel=0, ZIndex=301, Parent=overlay,
+	}); corner(14,box); stroke(C.border,1.5,box)
+
+	newInst("TextLabel", {
+		Size=UDim2.new(1,0,0,40),
+		Position=UDim2.new(0,0,0,16),
+		BackgroundTransparency=1,
+		Text="Are you sure you want to close the UI?",
+		TextColor3=C.textMain, Font=Enum.Font.GothamBold,
+		TextSize=13, TextWrapped=true,
+		TextXAlignment=Enum.TextXAlignment.Center,
+		ZIndex=302, Parent=box,
+	})
+
+	-- YES button
+	local yesBtn = newInst("TextButton", {
+		Size=UDim2.new(0,110,0,34),
+		Position=UDim2.new(0,18,0,76),
+		BackgroundColor3=Color3.fromRGB(26,50,26),
+		BorderSizePixel=0, Text="Yes", TextColor3=C.green,
+		Font=Enum.Font.GothamBold, TextSize=13, ZIndex=302, Parent=box,
+	}); corner(8,yesBtn); stroke(C.green,1,yesBtn)
+
+	-- NO button
+	local noBtn = newInst("TextButton", {
+		Size=UDim2.new(0,110,0,34),
+		Position=UDim2.new(1,-128,0,76),
+		BackgroundColor3=Color3.fromRGB(46,14,14),
+		BorderSizePixel=0, Text="No", TextColor3=C.red,
+		Font=Enum.Font.GothamBold, TextSize=13, ZIndex=302, Parent=box,
+	}); corner(8,noBtn); stroke(C.red,1,noBtn)
+
+	-- entrance anim
+	tween:Create(box, TweenInfo.new(0.3,Enum.EasingStyle.Back,Enum.EasingDirection.Out), {
+		BackgroundTransparency=0,
+		Position=UDim2.new(0.5,-140,0.5,-65),
+	}):Play()
+
+	local function dismiss(cb)
+		tween:Create(box, TweenInfo.new(0.2,Enum.EasingStyle.Quad,Enum.EasingDirection.In), {
+			BackgroundTransparency=1,
+			Position=UDim2.new(0.5,-140,0.55,-65),
+		}):Play()
+		tween:Create(overlay, TweenInfo.new(0.2), {BackgroundTransparency=1}):Play()
+		task.delay(0.22, function()
+			overlay:Destroy()
+			if cb then cb() end
+		end)
+	end
+
+	yesBtn.MouseButton1Click:Connect(function() dismiss(onYes) end)
+	noBtn.MouseButton1Click:Connect(function() dismiss(onNo) end)
+end
+
 -- ─── loading screen ──────────────────────────────────────────────────────────
+-- cfg.LoadingTitle    — big title text  (default: cfg.Name or "Naru Hub")
+-- cfg.LoadingSubtitle — small sub text  (default: "by Naru")
 
 local function showLoadingScreen(screen, cfg)
 	local loadTitle    = cfg.LoadingTitle    or cfg.Name or "Naru Hub"
@@ -198,13 +290,13 @@ local function showLoadingScreen(screen, cfg)
 	})
 
 	local inner = newInst("Frame", {
-		Size=UDim2.new(0,320,0,160), Position=UDim2.new(0.5,-160,0.6,-80),
+		Size=UDim2.new(0,320,0,160),
+		Position=UDim2.new(0.5,-160,0.6,-80),
 		BackgroundColor3=Color3.fromRGB(12,10,24),
 		BackgroundTransparency=1,
 		BorderSizePixel=0, ZIndex=201, Parent=overlay,
 	}); corner(18,inner); stroke(C.border,1.2,inner)
 
-	-- logo box (left side)
 	local logoFrame = newInst("Frame", {
 		Size=UDim2.new(0,64,0,64), Position=UDim2.new(0,28,0.5,-32),
 		BackgroundColor3=Color3.fromRGB(20,14,38),
@@ -217,7 +309,6 @@ local function showLoadingScreen(screen, cfg)
 		ZIndex=203, Parent=logoFrame,
 	})
 
-	-- text (right of logo)
 	local tx = 108
 	newInst("TextLabel", {
 		Size=UDim2.new(1,-(tx+18),0,28), Position=UDim2.new(0,tx,0,32),
@@ -234,7 +325,6 @@ local function showLoadingScreen(screen, cfg)
 		ZIndex=202, Parent=inner,
 	})
 
-	-- progress bar
 	local barTrack = newInst("Frame", {
 		Size=UDim2.new(1,-56,0,4), Position=UDim2.new(0,28,1,-24),
 		BackgroundColor3=Color3.fromRGB(26,20,46),
@@ -254,13 +344,11 @@ local function showLoadingScreen(screen, cfg)
 		ZIndex=202, Parent=inner,
 	})
 
-	-- entrance anim
 	tween:Create(inner, TweenInfo.new(0.5,Enum.EasingStyle.Back,Enum.EasingDirection.Out), {
 		BackgroundTransparency=0,
 		Position=UDim2.new(0.5,-160,0.5,-80),
 	}):Play()
 
-	-- progress steps
 	task.spawn(function()
 		local steps = {"Initializing...","Loading UI...","Applying theme...","Ready!"}
 		for i,msg in ipairs(steps) do
@@ -272,7 +360,6 @@ local function showLoadingScreen(screen, cfg)
 		end
 	end)
 
-	-- dismiss
 	task.delay(1.85, function()
 		tween:Create(overlay, TweenInfo.new(0.5,Enum.EasingStyle.Quad,Enum.EasingDirection.In), {
 			BackgroundTransparency=1
@@ -281,7 +368,7 @@ local function showLoadingScreen(screen, cfg)
 			BackgroundTransparency=1,
 			Position=UDim2.new(0.5,-160,0.4,-80),
 		}):Play()
-		task.delay(0.55, function() overlay:Destroy() end)
+		task.delay(0.55, function() if overlay.Parent then overlay:Destroy() end end)
 	end)
 end
 
@@ -293,6 +380,7 @@ function NaruUI:CreateWindow(cfg)
 	local title     = cfg.Name or "Naru Hub"
 	local toggleKey = cfg.ToggleKey or Enum.KeyCode.RightBracket
 
+	-- Clean up any old instance
 	if me.PlayerGui:FindFirstChild("NaruUI") then
 		me.PlayerGui.NaruUI:Destroy()
 	end
@@ -302,6 +390,13 @@ function NaruUI:CreateWindow(cfg)
 		ZIndexBehavior=Enum.ZIndexBehavior.Sibling,
 		Parent=me.PlayerGui,
 	})
+
+	-- Reset guard when screen is destroyed
+	screen.AncestryChanged:Connect(function()
+		if not screen.Parent then
+			_G.__NaruUI_Running = nil
+		end
+	end)
 
 	local notify = buildNotifSystem(screen)
 	showLoadingScreen(screen, cfg)
@@ -315,15 +410,15 @@ function NaruUI:CreateWindow(cfg)
 
 	-- window
 	local win = newInst("Frame", {
-		Size=UDim2.new(0,440,0,490), Position=UDim2.new(0.5,-220,0.5,-245),
+		Size=UDim2.new(0,370,0,420), Position=UDim2.new(0.5,-220,0.5,-245),
 		BackgroundColor3=C.bg, BorderSizePixel=0, ZIndex=1,
-		ClipsDescendants=false, Parent=screen,
+		ClipsDescendants=false, BackgroundTransparency=1, Parent=screen,
 	}); corner(16,win); stroke(Color3.fromRGB(100,50,220),1.5,win)
 
-	win.Size=UDim2.new(0,370,0,420); win.BackgroundTransparency=1
 	task.defer(function()
 		tween:Create(win, TweenInfo.new(0.4,Enum.EasingStyle.Back,Enum.EasingDirection.Out), {
 			Size=UDim2.new(0,440,0,490), BackgroundTransparency=0,
+			Position=UDim2.new(0.5,-220,0.5,-245),
 		}):Play()
 	end)
 
@@ -332,12 +427,13 @@ function NaruUI:CreateWindow(cfg)
 		Size=UDim2.new(1,0,0,44), BackgroundColor3=C.bgDeep,
 		BorderSizePixel=0, ZIndex=2, Parent=win,
 	}); corner(16,topbar)
+	-- fill bottom corners of topbar
 	newInst("Frame", {
 		Size=UDim2.new(1,0,0,16), Position=UDim2.new(0,0,1,-16),
 		BackgroundColor3=C.bgDeep, BorderSizePixel=0, ZIndex=2, Parent=topbar,
 	})
 
-	-- traffic-light dots — all properly circular via corner(99)
+	-- traffic-light dots
 	local dotRed = newInst("TextButton", {
 		Size=UDim2.new(0,12,0,12), Position=UDim2.new(0,14,0.5,-6),
 		BackgroundColor3=Color3.fromRGB(255,95,87), BorderSizePixel=0,
@@ -354,7 +450,7 @@ function NaruUI:CreateWindow(cfg)
 		Size=UDim2.new(0,12,0,12), Position=UDim2.new(0,50,0.5,-6),
 		BackgroundColor3=Color3.fromRGB(40,202,65), BorderSizePixel=0,
 		ZIndex=4, Parent=topbar,
-	}); corner(99,dotGreen)  -- FIXED: was missing corner
+	}); corner(99,dotGreen)
 
 	newInst("TextLabel", {
 		Size=UDim2.new(1,0,1,0), BackgroundTransparency=1,
@@ -396,16 +492,13 @@ function NaruUI:CreateWindow(cfg)
 		BackgroundTransparency=1, BorderSizePixel=0,
 		ScrollBarThickness=2, ScrollBarImageColor3=C.border,
 		CanvasSize=UDim2.new(0,0,0,0), ZIndex=2,
-		ClipsDescendants=false, Parent=win,
+		ClipsDescendants=true, Parent=win,
 	}); padding(8,8,8,8,bodyFrame)
 
-	-- canvas auto-size
-	runner.Heartbeat:Connect(function()
-		local total=0
-		for _,c in pairs(bodyFrame:GetChildren()) do
-			if c:IsA("GuiObject") and c.Visible then total=total+c.AbsoluteSize.Y+6 end
-		end
-		bodyFrame.CanvasSize=UDim2.new(0,0,0,total+16)
+	-- auto canvas size via UIListLayout absolute content size
+	local bodyLayout = listLayout(bodyFrame, 6)
+	bodyLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		bodyFrame.CanvasSize = UDim2.new(0,0,0,bodyLayout.AbsoluteContentSize.Y + 16)
 	end)
 
 	-- minimize
@@ -423,14 +516,25 @@ function NaruUI:CreateWindow(cfg)
 		end
 	end)
 
-	-- close
+	-- close — shows confirm dialog first
 	dotRed.MouseButton1Click:Connect(function()
-		tween:Create(win,TweenInfo.new(0.25,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{Size=UDim2.new(0,300,0,0),BackgroundTransparency=1}):Play()
-		tween:Create(glowFrame,TweenInfo.new(0.25),{BackgroundTransparency=1}):Play()
-		task.delay(0.3, function() screen:Destroy() end)
+		buildConfirmDialog(screen,
+			-- Yes → actually close
+			function()
+				tween:Create(win,TweenInfo.new(0.25,Enum.EasingStyle.Quad,Enum.EasingDirection.In),
+					{Size=UDim2.new(0,300,0,0),BackgroundTransparency=1}):Play()
+				tween:Create(glowFrame,TweenInfo.new(0.25),{BackgroundTransparency=1}):Play()
+				task.delay(0.3, function()
+					_G.__NaruUI_Running = nil
+					screen:Destroy()
+				end)
+			end,
+			-- No → do nothing
+			nil
+		)
 	end)
 
-	-- keyboard toggle (delayed past loading screen)
+	-- keyboard toggle
 	local isMobile = input.TouchEnabled and not input.KeyboardEnabled
 	if not isMobile then
 		task.delay(2.4, function()
@@ -462,12 +566,16 @@ function NaruUI:CreateWindow(cfg)
 			BackgroundColor3=C.border, BorderSizePixel=0,
 			BackgroundTransparency=1, ZIndex=4, Parent=tabBtn,
 		})
+
+		-- Each tab gets its own frame inside bodyFrame
 		local tabContainer=newInst("Frame", {
-			Size=UDim2.new(1,0,0,0), BackgroundTransparency=1,
-			BorderSizePixel=0, Visible=false, ZIndex=2,
-			AutomaticSize=Enum.AutomaticSize.Y, ClipsDescendants=false,
-			Parent=bodyFrame,
-		}); listLayout(tabContainer,6)
+			Size=UDim2.new(1,0,0,10),
+			BackgroundTransparency=1, BorderSizePixel=0,
+			Visible=false, ZIndex=2,
+			AutomaticSize=Enum.AutomaticSize.Y,
+			ClipsDescendants=false, Parent=bodyFrame,
+		})
+		local tcLayout = listLayout(tabContainer,6)
 
 		local entry={container=tabContainer,btn=tabBtn,line=underline}
 		local function activate()
@@ -498,7 +606,7 @@ function NaruUI:CreateWindow(cfg)
 		local function rowLabel(txt,sub,parent)
 			local wrap=newInst("Frame", {
 				Size=UDim2.new(0.6,0,0,sub and 38 or 22),
-				Position=UDim2.new(0,12,0,sub and 6 or 13),
+				Position=UDim2.new(0,12,0.5,sub and -19 or -11),
 				BackgroundTransparency=1, ZIndex=4, Parent=parent,
 			})
 			newInst("TextLabel", {
@@ -522,7 +630,6 @@ function NaruUI:CreateWindow(cfg)
 		function tabObj:CreateToggle(cfg2)
 			cfg2=cfg2 or {}
 			local val=cfg2.CurrentValue or false
-			-- SendNotification: true by default, set to false to silence
 			local sendNotif = cfg2.SendNotification ~= false
 			if cfg2.Flag then flags[cfg2.Flag]=val end
 
@@ -561,7 +668,7 @@ function NaruUI:CreateWindow(cfg)
 			end)
 
 			if cfg2.Flag then
-				table.insert(saveItems,{flag=cfg2.Flag, setter=function(v) setVal(v) end})
+				table.insert(saveItems,{flag=cfg2.Flag, setter=function(v) setVal(v==true or v=="true") end})
 			end
 
 			local obj={}
@@ -574,7 +681,6 @@ function NaruUI:CreateWindow(cfg)
 
 		function tabObj:CreateButton(cfg2)
 			cfg2=cfg2 or {}
-			-- SendNotification: true by default, set false to silence
 			local sendNotif = cfg2.SendNotification ~= false
 			local row=makeRow(48); rowLabel(cfg2.Name or "Button",cfg2.Description,row)
 
@@ -611,7 +717,6 @@ function NaruUI:CreateWindow(cfg)
 			local inc=cfg2.Increment or 1
 			local suffix=cfg2.Suffix or ""
 			local cur=cfg2.CurrentValue or range[1]
-			-- SendNotification: false by default for slider (would spam)
 			local sendNotif = cfg2.SendNotification == true
 			if cfg2.Flag then flags[cfg2.Flag]=cur end
 
@@ -682,7 +787,6 @@ function NaruUI:CreateWindow(cfg)
 			local options=cfg2.Options or {}
 			local multiSel=cfg2.MultipleOptions or false
 			local selected=multiSel and {} or (cfg2.CurrentOption or options[1] or "")
-			-- SendNotification: true by default
 			local sendNotif = cfg2.SendNotification ~= false
 			if cfg2.Flag then flags[cfg2.Flag]=selected end
 			local open=false
@@ -860,8 +964,9 @@ function NaruUI:CreateWindow(cfg)
 				Font=Enum.Font.GothamBold, TextSize=11, ZIndex=3, Parent=tabContainer,
 			}); padding(0,0,6,0,lbl)
 			local obj={}
-			function obj:Set(newTxt,_i,newCol,_ign)
-				lbl.Text=tostring(newTxt); if newCol then lbl.TextColor3=newCol end
+			function obj:Set(newTxt,_i,newCol)
+				lbl.Text=tostring(newTxt)
+				if newCol then lbl.TextColor3=newCol end
 			end
 			return obj
 		end
@@ -910,31 +1015,30 @@ function NaruUI:CreateWindow(cfg)
 
 	function winObj:GetFlag(flag) return flags[flag] end
 
-	-- Notify(title, content, color)  ─or─  Notify(title, Color3) shorthand
 	function winObj:Notify(title2,content2,col2)
 		if typeof(content2)=="Color3" then col2=content2; content2="" end
 		notify(tostring(title2 or "Notification"),tostring(content2 or ""),col2 or C.purple)
 	end
 
-	-- SaveConfiguration() — writes all flagged settings to file
+	-- SaveConfiguration() — serialises all flagged values to JSON
 	function winObj:SaveConfiguration()
 		local ok=saveConfig()
-		notify("Config",ok and "Saved!" or "Save failed!",ok and C.green or C.red)
+		notify("Config",ok and "Saved successfully!" or "Save failed!",ok and C.green or C.red)
 		return ok
 	end
 
-	-- LoadConfiguration() — reads file and restores all flagged settings
+	-- LoadConfiguration() — reads JSON and restores flagged values
 	function winObj:LoadConfiguration()
 		local data=loadConfig()
 		if not data then
-			notify("Config","No save found",C.red)
+			notify("Config","No save file found",C.red)
 			return false
 		end
 		for _,item in ipairs(saveItems) do
 			local v=data[item.flag]
 			if v~=nil then pcall(item.setter,v) end
 		end
-		notify("Config","Loaded!",C.green)
+		notify("Config","Loaded successfully!",C.green)
 		return true
 	end
 
