@@ -1,0 +1,859 @@
+-- NaruUI v2 — made by Naru
+
+local NaruUI = {}
+local tween  = game:GetService("TweenService")
+local input  = game:GetService("UserInputService")
+local runner = game:GetService("RunService")
+
+local C = {
+	bg        = Color3.fromRGB(13,13,26),
+	bgDeep    = Color3.fromRGB(10,10,20),
+	bgRow     = Color3.fromRGB(17,17,34),
+	border    = Color3.fromRGB(100,50,220),
+	purple    = Color3.fromRGB(160,96,255),
+	purpleDim = Color3.fromRGB(90,60,160),
+	purpleFade= Color3.fromRGB(58,32,96),
+	textMain  = Color3.fromRGB(192,160,255),
+	textDim   = Color3.fromRGB(90,58,128),
+	green     = Color3.fromRGB(120,255,160),
+	red       = Color3.fromRGB(255,96,96),
+}
+
+local flags = {}
+
+-- ─── helpers ────────────────────────────────────────────────────────────────
+
+local function newInst(cls, props)
+	local o = Instance.new(cls)
+	for k,v in pairs(props) do o[k] = v end
+	return o
+end
+local function corner(r, p)
+	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,r); c.Parent = p
+end
+local function stroke(col, thick, parent)
+	local s = Instance.new("UIStroke"); s.Color = col; s.Thickness = thick; s.Parent = parent; return s
+end
+local function padding(t,b,l,r,parent)
+	local p = Instance.new("UIPadding")
+	p.PaddingTop=UDim.new(0,t); p.PaddingBottom=UDim.new(0,b)
+	p.PaddingLeft=UDim.new(0,l); p.PaddingRight=UDim.new(0,r)
+	p.Parent = parent
+end
+local function listLayout(parent, gap, dir)
+	local l = Instance.new("UIListLayout")
+	l.SortOrder     = Enum.SortOrder.LayoutOrder
+	l.Padding       = UDim.new(0, gap or 6)
+	l.FillDirection = dir or Enum.FillDirection.Vertical
+	l.Parent        = parent
+	return l
+end
+
+-- ─── notification system (stacking, no limit cap bug) ───────────────────────
+
+local NOTIF_W    = 230
+local NOTIF_H    = 54
+local NOTIF_GAP  = 8
+local NOTIF_DUR  = 3.2
+local MAX_NOTIFS = 5
+
+local function buildNotifSystem(screen)
+	-- each active notif: {frame, slot}
+	local active = {}  -- ordered list, index = visual slot (bottom to top)
+
+	local function reflow()
+		-- reposition all active notifs after one is removed
+		for i, entry in ipairs(active) do
+			local targetY = -(i * (NOTIF_H + NOTIF_GAP))
+			tween:Create(entry.frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Position = UDim2.new(1, -(NOTIF_W + 10), 1, targetY)
+			}):Play()
+		end
+	end
+
+	local function removeEntry(entry)
+		for i, e in ipairs(active) do
+			if e == entry then
+				table.remove(active, i)
+				break
+			end
+		end
+		reflow()
+	end
+
+	return function(title, content, col)
+		col     = col     or C.purple
+		title   = title   or "Notification"
+		content = content or ""
+
+		-- enforce max
+		if #active >= MAX_NOTIFS then
+			local oldest = active[1]
+			tween:Create(oldest.frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+				Position = UDim2.new(1, 20, oldest.frame.Position.Y.Scale, oldest.frame.Position.Y.Offset)
+			}):Play()
+			task.delay(0.22, function() oldest.frame:Destroy() end)
+			removeEntry(oldest)
+		end
+
+		local slot = #active + 1
+		local startY = -(slot * (NOTIF_H + NOTIF_GAP))
+
+		local notif = newInst("Frame", {
+			Size             = UDim2.new(0, NOTIF_W, 0, NOTIF_H),
+			Position         = UDim2.new(1, 20, 1, startY),
+			BackgroundColor3 = Color3.fromRGB(10,8,22),
+			BorderSizePixel  = 0,
+			ZIndex           = 100,
+			Parent           = screen,
+		})
+		corner(12, notif)
+		stroke(col, 1.2, notif)
+
+		-- icon box
+		local iconBox = newInst("Frame", {
+			Size             = UDim2.new(0,36,0,36),
+			Position         = UDim2.new(0,9,0.5,-18),
+			BackgroundColor3 = Color3.fromRGB(20,14,38),
+			BorderSizePixel  = 0, ZIndex = 101, Parent = notif,
+		})
+		corner(8, iconBox); stroke(col, 1, iconBox)
+		local ic = newInst("Frame", {
+			Size=UDim2.new(0,18,0,18), Position=UDim2.new(0.5,-9,0.5,-9),
+			BackgroundColor3=col, BorderSizePixel=0, ZIndex=102, Parent=iconBox,
+		})
+		corner(4, ic)
+		local inner = newInst("Frame", {
+			Size=UDim2.new(0,10,0,10), Position=UDim2.new(0.5,-5,0.5,-5),
+			BackgroundColor3=Color3.fromRGB(10,8,22), BorderSizePixel=0, ZIndex=103, Parent=ic,
+		})
+		corner(2, inner)
+
+		newInst("TextLabel", {
+			Size=UDim2.new(1,-58,0,20), Position=UDim2.new(0,52,0,8),
+			BackgroundTransparency=1, Text=tostring(title), TextColor3=col,
+			TextXAlignment=Enum.TextXAlignment.Left, Font=Enum.Font.GothamBold,
+			TextSize=13, ZIndex=101, Parent=notif,
+		})
+		newInst("TextLabel", {
+			Size=UDim2.new(1,-58,0,16), Position=UDim2.new(0,52,0,28),
+			BackgroundTransparency=1, Text=tostring(content), TextColor3=Color3.fromRGB(130,110,170),
+			TextXAlignment=Enum.TextXAlignment.Left, Font=Enum.Font.Gotham,
+			TextSize=11, ZIndex=101, Parent=notif,
+		})
+
+		local entry = {frame = notif}
+		table.insert(active, entry)
+
+		-- slide in
+		tween:Create(notif, TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Position = UDim2.new(1, -(NOTIF_W+10), 1, startY)
+		}):Play()
+
+		-- auto dismiss
+		task.delay(NOTIF_DUR, function()
+			if not notif.Parent then return end
+			tween:Create(notif, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+				Position = UDim2.new(1, 20, 1, notif.Position.Y.Offset)
+			}):Play()
+			task.delay(0.28, function()
+				if notif.Parent then notif:Destroy() end
+				removeEntry(entry)
+			end)
+		end)
+	end
+end
+
+-- ─── CreateWindow ────────────────────────────────────────────────────────────
+
+function NaruUI:CreateWindow(cfg)
+	cfg = cfg or {}
+	local me        = game.Players.LocalPlayer
+	local title     = cfg.Name or "Naru Hub"
+	local toggleKey = cfg.ToggleKey or Enum.KeyCode.RightBracket
+
+	if me.PlayerGui:FindFirstChild("NaruUI") then
+		me.PlayerGui.NaruUI:Destroy()
+	end
+
+	local screen = newInst("ScreenGui", {
+		Name="NaruUI", ResetOnSpawn=false,
+		ZIndexBehavior=Enum.ZIndexBehavior.Sibling,
+		Parent=me.PlayerGui,
+	})
+
+	local notify = buildNotifSystem(screen)
+
+	-- glow
+	local glowFrame = newInst("Frame", {
+		Size=UDim2.new(0,458,0,510), Position=UDim2.new(0.5,-229,0.5,-255),
+		BackgroundColor3=Color3.fromRGB(100,50,220), BackgroundTransparency=0.88,
+		BorderSizePixel=0, ZIndex=0, Parent=screen,
+	})
+	corner(20, glowFrame)
+
+	-- window
+	local win = newInst("Frame", {
+		Size=UDim2.new(0,440,0,490), Position=UDim2.new(0.5,-220,0.5,-245),
+		BackgroundColor3=C.bg, BorderSizePixel=0, ZIndex=1,
+		ClipsDescendants=false, Parent=screen,
+	})
+	corner(16, win)
+	stroke(Color3.fromRGB(100,50,220), 1.5, win)
+
+	-- entrance anim
+	win.Size = UDim2.new(0,370,0,420)
+	win.BackgroundTransparency = 1
+	task.defer(function()
+		tween:Create(win, TweenInfo.new(0.4,Enum.EasingStyle.Back,Enum.EasingDirection.Out), {
+			Size=UDim2.new(0,440,0,490), BackgroundTransparency=0,
+		}):Play()
+	end)
+
+	-- topbar
+	local topbar = newInst("Frame", {
+		Size=UDim2.new(1,0,0,44), BackgroundColor3=C.bgDeep,
+		BorderSizePixel=0, ZIndex=2, Parent=win,
+	})
+	corner(16, topbar)
+	newInst("Frame", {
+		Size=UDim2.new(1,0,0,16), Position=UDim2.new(0,0,1,-16),
+		BackgroundColor3=C.bgDeep, BorderSizePixel=0, ZIndex=2, Parent=topbar,
+	})
+
+	-- dots
+	local dotRed = newInst("TextButton", {
+		Size=UDim2.new(0,12,0,12), Position=UDim2.new(0,14,0.5,-6),
+		BackgroundColor3=Color3.fromRGB(255,95,87), BorderSizePixel=0,
+		Text="", ZIndex=4, Parent=topbar,
+	}); corner(99,dotRed)
+
+	local dotYellow = newInst("TextButton", {
+		Size=UDim2.new(0,12,0,12), Position=UDim2.new(0,32,0.5,-6),
+		BackgroundColor3=Color3.fromRGB(255,189,46), BorderSizePixel=0,
+		Text="", ZIndex=4, Parent=topbar,
+	}); corner(99,dotYellow)
+
+	newInst("Frame", {
+		Size=UDim2.new(0,12,0,12), Position=UDim2.new(0,50,0.5,-6),
+		BackgroundColor3=Color3.fromRGB(40,202,65), BorderSizePixel=0,
+		ZIndex=4, Parent=topbar,
+	}):FindFirstChildWhichIsA("UICorner") -- just decorative; corner already applied below
+	do
+		local dg = newInst("Frame", {
+			Size=UDim2.new(0,12,0,12), Position=UDim2.new(0,50,0.5,-6),
+			BackgroundColor3=Color3.fromRGB(40,202,65), BorderSizePixel=0,
+			ZIndex=4, Parent=topbar,
+		}); corner(99,dg)
+	end
+
+	newInst("TextLabel", {
+		Size=UDim2.new(1,0,1,0), BackgroundTransparency=1,
+		Text=title, TextColor3=C.purple, TextScaled=true,
+		Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Center,
+		ZIndex=3, Parent=topbar,
+	})
+
+	-- drag
+	local dragging, dragStart, startPos = false, nil, nil
+	topbar.InputBegan:Connect(function(i)
+		if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+			dragging=true; dragStart=i.Position; startPos=win.Position
+		end
+	end)
+	topbar.InputChanged:Connect(function(i)
+		if dragging and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then
+			local d = i.Position - dragStart
+			win.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset+d.X, startPos.Y.Scale, startPos.Y.Offset+d.Y)
+			glowFrame.Position = UDim2.new(win.Position.X.Scale, win.Position.X.Offset-9, win.Position.Y.Scale, win.Position.Y.Offset-9)
+		end
+	end)
+	topbar.InputEnded:Connect(function(i)
+		if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+			dragging=false
+		end
+	end)
+
+	-- tab bar
+	local tabBar = newInst("Frame", {
+		Size=UDim2.new(1,0,0,38), Position=UDim2.new(0,0,0,44),
+		BackgroundColor3=C.bgDeep, BorderSizePixel=0, ZIndex=2, Parent=win,
+	})
+	stroke(Color3.fromRGB(100,50,220), 1, tabBar)
+	listLayout(tabBar, 0, Enum.FillDirection.Horizontal)
+
+	-- body
+	local bodyFrame = newInst("ScrollingFrame", {
+		Size=UDim2.new(1,0,1,-104), Position=UDim2.new(0,0,0,82),
+		BackgroundTransparency=1, BorderSizePixel=0,
+		ScrollBarThickness=2, ScrollBarImageColor3=C.border,
+		CanvasSize=UDim2.new(0,0,0,0), ZIndex=2,
+		ClipsDescendants=false, Parent=win,
+	})
+	padding(8,8,8,8, bodyFrame)
+
+	-- footer
+	newInst("TextLabel", {
+		Size=UDim2.new(1,0,0,22), Position=UDim2.new(0,0,1,-26),
+		BackgroundTransparency=1, Text="made by Naru",
+		TextColor3=C.purpleFade, TextScaled=true,
+		Font=Enum.Font.Gotham, ZIndex=3, Parent=win,
+	})
+
+	-- canvas auto size
+	runner.Heartbeat:Connect(function()
+		local total = 0
+		for _,c in pairs(bodyFrame:GetChildren()) do
+			if c:IsA("GuiObject") and c.Visible then
+				total = total + c.AbsoluteSize.Y + 6
+			end
+		end
+		bodyFrame.CanvasSize = UDim2.new(0,0,0,total+16)
+	end)
+
+	-- minimize
+	local minimized = false
+	dotYellow.MouseButton1Click:Connect(function()
+		minimized = not minimized
+		if minimized then
+			bodyFrame.Visible=false; tabBar.Visible=false
+			tween:Create(win,TweenInfo.new(0.3,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Size=UDim2.new(0,440,0,44)}):Play()
+			tween:Create(glowFrame,TweenInfo.new(0.3),{Size=UDim2.new(0,458,0,60)}):Play()
+		else
+			bodyFrame.Visible=true; tabBar.Visible=true
+			tween:Create(win,TweenInfo.new(0.35,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Size=UDim2.new(0,440,0,490)}):Play()
+			tween:Create(glowFrame,TweenInfo.new(0.35,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Size=UDim2.new(0,458,0,510)}):Play()
+		end
+	end)
+
+	-- close
+	dotRed.MouseButton1Click:Connect(function()
+		tween:Create(win,TweenInfo.new(0.25,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{Size=UDim2.new(0,300,0,0),BackgroundTransparency=1}):Play()
+		tween:Create(glowFrame,TweenInfo.new(0.25),{BackgroundTransparency=1}):Play()
+		task.delay(0.3, function() screen:Destroy() end)
+	end)
+
+	-- keyboard toggle
+	local isMobile = input.TouchEnabled and not input.KeyboardEnabled
+	if not isMobile then
+		task.delay(0.8, function()
+			notify("Naru Hub", "Press "..tostring(toggleKey.Name).." to toggle", C.purple)
+		end)
+		input.InputBegan:Connect(function(i, gp)
+			if gp then return end
+			if i.KeyCode == toggleKey then
+				win.Visible=not win.Visible; glowFrame.Visible=win.Visible
+			end
+		end)
+	end
+
+	local tabCount = 0
+	local activeTab = nil
+	local winObj = {}
+
+	-- ─── CreateTab ────────────────────────────────────────────────────────────
+
+	function winObj:CreateTab(tabName)
+		tabCount = tabCount + 1
+
+		local tabBtn = newInst("TextButton", {
+			Size=UDim2.new(0,100,1,0), BackgroundColor3=C.bgDeep,
+			BorderSizePixel=0, Text=tabName, TextColor3=C.textDim,
+			Font=Enum.Font.GothamBold, TextSize=11, ZIndex=3, Parent=tabBar,
+		})
+		local underline = newInst("Frame", {
+			Size=UDim2.new(1,0,0,2), Position=UDim2.new(0,0,1,-2),
+			BackgroundColor3=C.border, BorderSizePixel=0,
+			BackgroundTransparency=1, ZIndex=4, Parent=tabBtn,
+		})
+		local tabContainer = newInst("Frame", {
+			Size=UDim2.new(1,0,0,0), BackgroundTransparency=1,
+			BorderSizePixel=0, Visible=false, ZIndex=2,
+			AutomaticSize=Enum.AutomaticSize.Y, ClipsDescendants=false,
+			Parent=bodyFrame,
+		})
+		listLayout(tabContainer, 6)
+
+		local entry = {container=tabContainer, btn=tabBtn, line=underline}
+		local function activate()
+			if activeTab then
+				activeTab.container.Visible=false
+				tween:Create(activeTab.btn,TweenInfo.new(0.15),{TextColor3=C.textDim}):Play()
+				tween:Create(activeTab.line,TweenInfo.new(0.15),{BackgroundTransparency=1}):Play()
+			end
+			activeTab=entry; tabContainer.Visible=true
+			tween:Create(tabBtn,TweenInfo.new(0.15),{TextColor3=C.textMain}):Play()
+			tween:Create(underline,TweenInfo.new(0.15),{BackgroundTransparency=0}):Play()
+		end
+		if tabCount==1 then activate() end
+		tabBtn.MouseButton1Click:Connect(activate)
+
+		local tabObj = {}
+
+		-- shared row builder
+		local function makeRow(h, autoY)
+			local r = newInst("Frame", {
+				Size=autoY and UDim2.new(1,0,0,10) or UDim2.new(1,0,0,h or 48),
+				BackgroundColor3=C.bgRow, BorderSizePixel=0, ZIndex=3,
+				ClipsDescendants=false,
+				AutomaticSize=autoY and Enum.AutomaticSize.Y or Enum.AutomaticSize.None,
+				Parent=tabContainer,
+			})
+			corner(10,r); stroke(Color3.fromRGB(100,50,220),1,r)
+			return r
+		end
+
+		local function rowLabel(txt, sub, parent)
+			local wrap = newInst("Frame", {
+				Size=UDim2.new(0.6,0,0,sub and 38 or 22),
+				Position=UDim2.new(0,12,0,sub and 6 or 13),
+				BackgroundTransparency=1, ZIndex=4, Parent=parent,
+			})
+			newInst("TextLabel", {
+				Size=UDim2.new(1,0,0,16), BackgroundTransparency=1,
+				Text=txt, TextColor3=C.textMain,
+				TextXAlignment=Enum.TextXAlignment.Left,
+				Font=Enum.Font.GothamBold, TextSize=12, ZIndex=4, Parent=wrap,
+			})
+			if sub then
+				newInst("TextLabel", {
+					Size=UDim2.new(1,0,0,14), Position=UDim2.new(0,0,0,19),
+					BackgroundTransparency=1, Text=sub, TextColor3=C.textDim,
+					TextXAlignment=Enum.TextXAlignment.Left,
+					Font=Enum.Font.Gotham, TextSize=10, ZIndex=4, Parent=wrap,
+				})
+			end
+		end
+
+		-- ── Toggle ──────────────────────────────────────────────────────────
+
+		function tabObj:CreateToggle(cfg2)
+			cfg2=cfg2 or {}
+			local val=cfg2.CurrentValue or false
+			if cfg2.Flag then flags[cfg2.Flag]=val end
+
+			local row=makeRow(48)
+			rowLabel(cfg2.Name or "Toggle", cfg2.Description, row)
+
+			local track=newInst("Frame", {
+				Size=UDim2.new(0,42,0,24), Position=UDim2.new(1,-54,0.5,-12),
+				BackgroundColor3=Color3.fromRGB(26,26,46), BorderSizePixel=0, ZIndex=4, Parent=row,
+			}); corner(99,track); stroke(Color3.fromRGB(100,50,220),1,track)
+
+			local thumb=newInst("Frame", {
+				Size=UDim2.new(0,18,0,18), Position=UDim2.new(0,2,0.5,-9),
+				BackgroundColor3=C.purpleFade, BorderSizePixel=0, ZIndex=5, Parent=track,
+			}); corner(99,thumb)
+
+			local function setVal(v)
+				val=v
+				if cfg2.Flag then flags[cfg2.Flag]=v end
+				if v then
+					tween:Create(thumb,TweenInfo.new(0.18),{Position=UDim2.new(0,22,0.5,-9),BackgroundColor3=C.purple}):Play()
+					tween:Create(track,TweenInfo.new(0.18),{BackgroundColor3=Color3.fromRGB(42,26,78)}):Play()
+				else
+					tween:Create(thumb,TweenInfo.new(0.18),{Position=UDim2.new(0,2,0.5,-9),BackgroundColor3=C.purpleFade}):Play()
+					tween:Create(track,TweenInfo.new(0.18),{BackgroundColor3=Color3.fromRGB(26,26,46)}):Play()
+				end
+				if cfg2.Callback then cfg2.Callback(v) end
+				notify(cfg2.Name or "Toggle", v and "Enabled" or "Disabled", v and C.green or C.red)
+			end
+
+			setVal(val)
+			track.InputBegan:Connect(function(i)
+				if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+					setVal(not val)
+				end
+			end)
+
+			local obj={}
+			function obj:Set(v) setVal(v) end
+			function obj:Get() return val end
+			return obj
+		end
+
+		-- ── Button ──────────────────────────────────────────────────────────
+
+		function tabObj:CreateButton(cfg2)
+			cfg2=cfg2 or {}
+			local row=makeRow(48)
+			rowLabel(cfg2.Name or "Button", cfg2.Description, row)
+
+			-- updateable label
+			local nameLbl = row:FindFirstChildWhichIsA("Frame") and
+				row:FindFirstChildWhichIsA("Frame"):FindFirstChildWhichIsA("TextLabel")
+
+			local btn2=newInst("TextButton", {
+				Size=UDim2.new(0,66,0,30), Position=UDim2.new(1,-78,0.5,-15),
+				BackgroundColor3=Color3.fromRGB(26,14,46), BorderSizePixel=0,
+				Text=cfg2.ButtonText or "Run",
+				TextColor3=cfg2.Danger and C.red or C.purple,
+				Font=Enum.Font.GothamBold, TextSize=11, ZIndex=4, Parent=row,
+			}); corner(8,btn2)
+			stroke(cfg2.Danger and Color3.fromRGB(160,48,48) or C.border, 1, btn2)
+
+			btn2.MouseButton1Click:Connect(function()
+				tween:Create(btn2,TweenInfo.new(0.07),{Size=UDim2.new(0,58,0,26),Position=UDim2.new(1,-74,0.5,-13)}):Play()
+				task.delay(0.07, function()
+					tween:Create(btn2,TweenInfo.new(0.12,Enum.EasingStyle.Back),{Size=UDim2.new(0,66,0,30),Position=UDim2.new(1,-78,0.5,-15)}):Play()
+				end)
+				if cfg2.Callback then cfg2.Callback() end
+				notify(cfg2.Name or "Button", cfg2.NotifContent or "Button pressed", cfg2.Danger and C.red or C.purple)
+			end)
+
+			local obj={}
+			function obj:Set(txt)
+				btn2.Text = tostring(txt)
+			end
+			return obj
+		end
+
+		-- ── Slider ──────────────────────────────────────────────────────────
+
+		function tabObj:CreateSlider(cfg2)
+			cfg2=cfg2 or {}
+			local range=cfg2.Range or {0,100}
+			local inc=cfg2.Increment or 1
+			local suffix=cfg2.Suffix or ""
+			local cur=cfg2.CurrentValue or range[1]
+			if cfg2.Flag then flags[cfg2.Flag]=cur end
+
+			local row=makeRow(64)
+			rowLabel(cfg2.Name or "Slider", nil, row)
+
+			local valLbl=newInst("TextLabel", {
+				Size=UDim2.new(0,80,0,18), Position=UDim2.new(1,-88,0,14),
+				BackgroundTransparency=1, Text=tostring(cur).." "..suffix,
+				TextColor3=C.purple, TextXAlignment=Enum.TextXAlignment.Right,
+				Font=Enum.Font.GothamBold, TextSize=11, ZIndex=4, Parent=row,
+			})
+			local trackBg=newInst("Frame", {
+				Size=UDim2.new(1,-22,0,4), Position=UDim2.new(0,11,0,44),
+				BackgroundColor3=Color3.fromRGB(30,20,50), BorderSizePixel=0, ZIndex=4, Parent=row,
+			}); corner(99,trackBg)
+			local fill=newInst("Frame", {
+				Size=UDim2.new(0,0,1,0), BackgroundColor3=C.purple,
+				BorderSizePixel=0, ZIndex=5, Parent=trackBg,
+			}); corner(99,fill)
+			local knob=newInst("Frame", {
+				Size=UDim2.new(0,16,0,16), Position=UDim2.new(0,0,0.5,-8),
+				BackgroundColor3=C.purple, BorderSizePixel=0, ZIndex=6, Parent=trackBg,
+			}); corner(99,knob); stroke(C.bgDeep,2,knob)
+
+			local function setSlider(v)
+				v=math.clamp(math.round(v/inc)*inc, range[1], range[2])
+				cur=v
+				if cfg2.Flag then flags[cfg2.Flag]=v end
+				local pct=(v-range[1])/(range[2]-range[1])
+				fill.Size=UDim2.new(pct,0,1,0)
+				knob.Position=UDim2.new(pct,-8,0.5,-8)
+				valLbl.Text=tostring(v).." "..suffix
+				if cfg2.Callback then cfg2.Callback(v) end
+			end
+			setSlider(cur)
+
+			local sliding=false
+			trackBg.InputBegan:Connect(function(i)
+				if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+					sliding=true
+				end
+			end)
+			input.InputEnded:Connect(function(i)
+				if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+					sliding=false
+				end
+			end)
+			input.InputChanged:Connect(function(i)
+				if sliding and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then
+					local rel=(i.Position.X-trackBg.AbsolutePosition.X)/trackBg.AbsoluteSize.X
+					setSlider(range[1]+(range[2]-range[1])*math.clamp(rel,0,1))
+				end
+			end)
+
+			local obj={}
+			function obj:Set(v) setSlider(v) end
+			function obj:Get() return cur end
+			return obj
+		end
+
+		-- ── Dropdown (single + multi) ────────────────────────────────────────
+
+		function tabObj:CreateDropdown(cfg2)
+			cfg2=cfg2 or {}
+			local options  = cfg2.Options or {}
+			local multiSel = cfg2.MultipleOptions or false
+			-- selected: table for multi, string for single
+			local selected = multiSel and {} or (cfg2.CurrentOption or options[1] or "")
+			if cfg2.Flag then flags[cfg2.Flag]=selected end
+			local open=false
+
+			local row=makeRow(nil,true)
+			padding(10,10,10,10,row); listLayout(row,6)
+
+			local topLine=newInst("Frame", {
+				Size=UDim2.new(1,0,0,20), BackgroundTransparency=1, ZIndex=4, Parent=row,
+			})
+			newInst("TextLabel", {
+				Size=UDim2.new(0.6,0,1,0), BackgroundTransparency=1,
+				Text=cfg2.Name or "Dropdown", TextColor3=C.textMain,
+				TextXAlignment=Enum.TextXAlignment.Left,
+				Font=Enum.Font.GothamBold, TextSize=12, ZIndex=4, Parent=topLine,
+			})
+
+			local function displayText()
+				if multiSel then
+					if #selected==0 then return "None  v" end
+					return table.concat(selected,", ").."  v"
+				else
+					return tostring(selected).."  v"
+				end
+			end
+
+			local dropBtn=newInst("TextButton", {
+				Size=UDim2.new(1,0,0,30), BackgroundColor3=Color3.fromRGB(26,14,46),
+				BorderSizePixel=0, Text=displayText(), TextColor3=C.purple,
+				Font=Enum.Font.GothamBold, TextSize=11, ZIndex=4, Parent=row,
+			}); corner(8,dropBtn); stroke(C.border,1,dropBtn)
+
+			local menuFrame=newInst("Frame", {
+				Size=UDim2.new(1,0,0,0), BackgroundColor3=Color3.fromRGB(19,16,38),
+				BorderSizePixel=0, ZIndex=5, ClipsDescendants=true,
+				Visible=false, Parent=row,
+			}); corner(8,menuFrame); stroke(C.border,1,menuFrame)
+			listLayout(menuFrame,0)
+
+			local optBtns={}
+
+			local function isSelected(opt)
+				if multiSel then
+					for _,v in ipairs(selected) do if v==opt then return true end end
+					return false
+				else
+					return selected==opt
+				end
+			end
+
+			local function refreshColors()
+				for opt,ob in pairs(optBtns) do
+					tween:Create(ob,TweenInfo.new(0.1),{TextColor3=isSelected(opt) and C.purple or C.textDim}):Play()
+				end
+			end
+
+			local function buildOptions()
+				-- clear old
+				for _,c in pairs(menuFrame:GetChildren()) do
+					if c:IsA("GuiObject") then c:Destroy() end
+				end
+				optBtns={}
+				for _,opt in ipairs(options) do
+					local ob=newInst("TextButton", {
+						Size=UDim2.new(1,0,0,30), BackgroundTransparency=1,
+						Text=opt, TextColor3=isSelected(opt) and C.purple or C.textDim,
+						Font=Enum.Font.Gotham, TextSize=11, ZIndex=6, Parent=menuFrame,
+					})
+					optBtns[opt]=ob
+					ob.MouseButton1Click:Connect(function()
+						if multiSel then
+							local found=false
+							for i,v in ipairs(selected) do
+								if v==opt then table.remove(selected,i); found=true; break end
+							end
+							if not found then table.insert(selected,opt) end
+							refreshColors()
+							dropBtn.Text=displayText()
+							if cfg2.Flag then flags[cfg2.Flag]=selected end
+							if cfg2.Callback then cfg2.Callback(selected) end
+							notify(cfg2.Name or "Dropdown","Selected: "..displayText():gsub("  v",""),C.purple)
+						else
+							selected=opt
+							dropBtn.Text=opt.."  v"
+							open=false
+							tween:Create(menuFrame,TweenInfo.new(0.18,Enum.EasingStyle.Quad),{Size=UDim2.new(1,0,0,0)}):Play()
+							task.delay(0.2,function() menuFrame.Visible=false end)
+							if cfg2.Flag then flags[cfg2.Flag]=opt end
+							if cfg2.Callback then cfg2.Callback(opt) end
+							notify(cfg2.Name or "Dropdown","Selected: "..opt,C.purple)
+						end
+					end)
+					ob.MouseEnter:Connect(function()
+						tween:Create(ob,TweenInfo.new(0.1),{BackgroundTransparency=0.7,BackgroundColor3=C.purpleFade}):Play()
+					end)
+					ob.MouseLeave:Connect(function()
+						tween:Create(ob,TweenInfo.new(0.1),{BackgroundTransparency=1}):Play()
+					end)
+				end
+			end
+			buildOptions()
+
+			dropBtn.MouseButton1Click:Connect(function()
+				open=not open
+				if open then
+					menuFrame.Visible=true; menuFrame.Size=UDim2.new(1,0,0,0)
+					tween:Create(menuFrame,TweenInfo.new(0.25,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{
+						Size=UDim2.new(1,0,0,#options*30)
+					}):Play()
+					dropBtn.Text=displayText():gsub("v$","^")
+				else
+					tween:Create(menuFrame,TweenInfo.new(0.18,Enum.EasingStyle.Quad),{Size=UDim2.new(1,0,0,0)}):Play()
+					task.delay(0.2,function() menuFrame.Visible=false end)
+					dropBtn.Text=displayText()
+				end
+			end)
+
+			local obj={}
+			function obj:Set(v)
+				-- v: string for single, table for multi
+				selected=v
+				if cfg2.Flag then flags[cfg2.Flag]=v end
+				dropBtn.Text=displayText()
+				refreshColors()
+			end
+			function obj:Refresh(newOpts)
+				options=newOpts
+				if multiSel then selected={} else selected=newOpts[1] or "" end
+				dropBtn.Text=displayText()
+				if open then
+					menuFrame.Visible=false; open=false
+				end
+				buildOptions()
+			end
+			function obj:Get() return selected end
+			return obj
+		end
+
+		-- ── Input ────────────────────────────────────────────────────────────
+
+		function tabObj:CreateInput(cfg2)
+			cfg2=cfg2 or {}
+			local val=cfg2.CurrentValue or ""
+			if cfg2.Flag then flags[cfg2.Flag]=val end
+
+			local row=makeRow(nil,true)
+			padding(10,10,10,10,row); listLayout(row,6)
+
+			local topLine=newInst("Frame", {
+				Size=UDim2.new(1,0,0,20), BackgroundTransparency=1, ZIndex=4, Parent=row,
+			})
+			newInst("TextLabel", {
+				Size=UDim2.new(1,0,1,0), BackgroundTransparency=1,
+				Text=cfg2.Name or "Input", TextColor3=C.textMain,
+				TextXAlignment=Enum.TextXAlignment.Left,
+				Font=Enum.Font.GothamBold, TextSize=12, ZIndex=4, Parent=topLine,
+			})
+
+			local box=newInst("TextBox", {
+				Size=UDim2.new(1,0,0,30), BackgroundColor3=Color3.fromRGB(22,14,42),
+				BorderSizePixel=0, Text=val,
+				PlaceholderText=cfg2.PlaceholderText or "Type here...",
+				PlaceholderColor3=C.textDim, TextColor3=C.purple,
+				Font=Enum.Font.Gotham, TextSize=11, ZIndex=4,
+				ClearTextOnFocus=false, Parent=row,
+			}); corner(8,box); stroke(C.border,1,box)
+			padding(0,0,8,8,box)
+
+			box:GetPropertyChangedSignal("Text"):Connect(function()
+				val=box.Text
+				if cfg2.Flag then flags[cfg2.Flag]=val end
+				if cfg2.Callback then cfg2.Callback(val) end
+			end)
+
+			if cfg2.RemoveTextAfterFocusLost then
+				box.FocusLost:Connect(function()
+					box.Text=""; val=""
+					if cfg2.Flag then flags[cfg2.Flag]="" end
+				end)
+			end
+
+			local obj={}
+			function obj:Set(v) box.Text=tostring(v); val=tostring(v); if cfg2.Flag then flags[cfg2.Flag]=val end end
+			function obj:Get() return val end
+			return obj
+		end
+
+		-- ── Label ────────────────────────────────────────────────────────────
+
+		function tabObj:CreateLabel(txt, _icon, col, _ignoreTheme)
+			col = col or C.textMain
+			local lbl=newInst("TextLabel", {
+				Size=UDim2.new(1,0,0,22), BackgroundTransparency=1,
+				Text=tostring(txt), TextColor3=col,
+				TextXAlignment=Enum.TextXAlignment.Left,
+				Font=Enum.Font.GothamBold, TextSize=11, ZIndex=3, Parent=tabContainer,
+			})
+			padding(0,0,6,0,lbl)
+
+			local obj={}
+			function obj:Set(newTxt, _i, newCol, _ign)
+				lbl.Text=tostring(newTxt)
+				if newCol then lbl.TextColor3=newCol end
+			end
+			return obj
+		end
+
+		-- ── Paragraph ────────────────────────────────────────────────────────
+
+		function tabObj:CreateParagraph(cfg2)
+			cfg2=cfg2 or {}
+
+			local row=makeRow(nil,true)
+			padding(10,10,12,12,row); listLayout(row,4)
+
+			local titleLbl=newInst("TextLabel", {
+				Size=UDim2.new(1,0,0,16), BackgroundTransparency=1,
+				Text=cfg2.Title or "", TextColor3=C.textMain,
+				TextXAlignment=Enum.TextXAlignment.Left,
+				Font=Enum.Font.GothamBold, TextSize=12, ZIndex=4, Parent=row,
+			})
+			local contentLbl=newInst("TextLabel", {
+				Size=UDim2.new(1,0,0,0), BackgroundTransparency=1,
+				Text=cfg2.Content or "", TextColor3=C.textDim,
+				TextXAlignment=Enum.TextXAlignment.Left,
+				TextWrapped=true, Font=Enum.Font.Gotham, TextSize=11,
+				AutomaticSize=Enum.AutomaticSize.Y,
+				ZIndex=4, Parent=row,
+			})
+
+			local obj={}
+			function obj:Set(newCfg)
+				if newCfg.Title   then titleLbl.Text  =newCfg.Title   end
+				if newCfg.Content then contentLbl.Text=newCfg.Content end
+			end
+			return obj
+		end
+
+		-- ── SectionLabel ─────────────────────────────────────────────────────
+
+		function tabObj:CreateSectionLabel(txt)
+			local lbl=newInst("TextLabel", {
+				Size=UDim2.new(1,0,0,18), BackgroundTransparency=1,
+				Text=txt, TextColor3=C.textDim,
+				TextXAlignment=Enum.TextXAlignment.Left,
+				Font=Enum.Font.GothamBold, TextSize=9, ZIndex=3, Parent=tabContainer,
+			})
+			padding(0,0,6,0,lbl)
+		end
+
+		return tabObj
+	end
+
+	-- ── Window-level methods ─────────────────────────────────────────────────
+
+	function winObj:GetFlag(flag) return flags[flag] end
+
+	-- Notify(title, content, color)  — all three optional
+	function winObj:Notify(title2, content2, col2)
+		-- handle Notify("title", Color3) shorthand gracefully
+		if typeof(content2)=="Color3" then
+			col2=content2; content2=""
+		end
+		notify(
+			tostring(title2   or "Notification"),
+			tostring(content2 or ""),
+			col2 or C.purple
+		)
+	end
+
+	return winObj
+end
+
+return NaruUI
