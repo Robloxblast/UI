@@ -466,18 +466,24 @@ function NaruUI:CreateWindow(cfg)
 			dragging=true; dragStart=i.Position; startPos=win.Position
 		end
 	end)
-	topbar.InputChanged:Connect(function(i)
-		if dragging and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then
-			local d=i.Position-dragStart
-			win.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
-			glowFrame.Position=UDim2.new(win.Position.X.Scale,win.Position.X.Offset-9,win.Position.Y.Scale,win.Position.Y.Offset-9)
-		end
-	end)
-	topbar.InputEnded:Connect(function(i)
-		if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
-			dragging=false
-		end
-	end)
+    input.InputChanged:Connect(function(i)
+    if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement 
+        or i.UserInputType == Enum.UserInputType.Touch) then
+        local d = i.Position - dragStart
+        win.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X,
+                                  startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        glowFrame.Position = UDim2.new(
+            win.Position.X.Scale, win.Position.X.Offset - 9,
+            win.Position.Y.Scale, win.Position.Y.Offset - 9)
+    end
+end)
+
+input.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 
+        or i.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
 
 	-- tab bar
 	local tabBar = newInst("Frame", {
