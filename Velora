@@ -1,7 +1,4 @@
--- NaruUI v3 — made by Naru
--- Fixes: loading screen title/subtitle configurable, confirm close dialog,
---        single-instance guard, config save/load JSON, layout polish
-
+-- Velora V1 — made by Naru
 local NaruUI = {}
 local tween  = game:GetService("TweenService")
 local input  = game:GetService("UserInputService")
@@ -9,7 +6,7 @@ local runner = game:GetService("RunService")
 local http   = game:GetService("HttpService")
 
 -- ── Single-instance guard ────────────────────────────────────────────────────
--- If NaruUI is already running (screen exists) we skip re-running it.
+-- If ValoraUI is already running (screen exists) we skip re-running it.
 if _G.__NaruUI_Running then
 	warn("[NaruUI] Already running — ignoring duplicate load.")
 	return {}
