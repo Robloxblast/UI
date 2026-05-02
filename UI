@@ -20,6 +20,9 @@ local C = {
 }
 
 local flags = {}
+local notifQueue = {}
+local notifActive = 0
+local MAX_NOTIFS = 4
 
 local function newInst(cls, props)
 	local o = Instance.new(cls)
@@ -52,80 +55,134 @@ end
 
 local function listLayout(parent, gap, dir)
 	local l = Instance.new("UIListLayout")
-	l.SortOrder      = Enum.SortOrder.LayoutOrder
-	l.Padding        = UDim.new(0, gap or 6)
-	l.FillDirection  = dir or Enum.FillDirection.Vertical
-	l.Parent         = parent
+	l.SortOrder     = Enum.SortOrder.LayoutOrder
+	l.Padding       = UDim.new(0, gap or 6)
+	l.FillDirection = dir or Enum.FillDirection.Vertical
+	l.Parent        = parent
 	return l
 end
 
-local function notify(screen, msg, col)
-	col = col or Color3.fromRGB(160,96,255)
+local function notify(screen, title, content, col)
+	col     = col     or Color3.fromRGB(160,96,255)
+	title   = title   or "Notification"
+	content = content or ""
+
+	if notifActive >= MAX_NOTIFS then return end
+	notifActive = notifActive + 1
+
+	local slot = notifActive
 
 	local notif = newInst("Frame", {
-		Size                  = UDim2.new(0, 210, 0, 36),
-		Position              = UDim2.new(1, 20, 0, 10),
+		Size                  = UDim2.new(0, 230, 0, 54),
+		Position              = UDim2.new(1, 20, 1, -(slot * 62)),
 		BackgroundColor3      = Color3.fromRGB(10,8,22),
 		BorderSizePixel       = 0,
 		ZIndex                = 100,
 		Parent                = screen,
 	})
-	corner(10, notif)
-	stroke(col, 1, notif)
+	corner(12, notif)
+	stroke(col, 1.2, notif)
 
-	local dot = newInst("Frame", {
-		Size             = UDim2.new(0, 8, 0, 8),
-		Position         = UDim2.new(0, 10, 0.5, -4),
-		BackgroundColor3 = col,
+	-- icon box
+	local iconBox = newInst("Frame", {
+		Size             = UDim2.new(0, 36, 0, 36),
+		Position         = UDim2.new(0, 9, 0.5, -18),
+		BackgroundColor3 = Color3.fromRGB(20,14,38),
 		BorderSizePixel  = 0,
 		ZIndex           = 101,
 		Parent           = notif,
 	})
-	corner(99, dot)
+	corner(8, iconBox)
+	stroke(col, 1, iconBox)
 
+	-- roblox-style cube icon using frames
+	local ic = newInst("Frame", {
+		Size             = UDim2.new(0, 18, 0, 18),
+		Position         = UDim2.new(0.5, -9, 0.5, -9),
+		BackgroundColor3 = col,
+		BorderSizePixel  = 0,
+		ZIndex           = 102,
+		Parent           = iconBox,
+	})
+	corner(4, ic)
+	newInst("Frame", {
+		Size             = UDim2.new(0, 10, 0, 10),
+		Position         = UDim2.new(0.5, -5, 0.5, -5),
+		BackgroundColor3 = Color3.fromRGB(10,8,22),
+		BorderSizePixel  = 0,
+		ZIndex           = 103,
+		Parent           = ic,
+	})
+	corner(2, ic:FindFirstChildWhichIsA("Frame"))
+
+	-- title text
 	newInst("TextLabel", {
-		Size                 = UDim2.new(1, -28, 1, 0),
-		Position             = UDim2.new(0, 24, 0, 0),
+		Size                 = UDim2.new(1, -58, 0, 20),
+		Position             = UDim2.new(0, 52, 0, 8),
 		BackgroundTransparency = 1,
-		Text                 = msg,
+		Text                 = title,
 		TextColor3           = col,
-		TextScaled           = true,
-		Font                 = Enum.Font.GothamBold,
 		TextXAlignment       = Enum.TextXAlignment.Left,
+		Font                 = Enum.Font.GothamBold,
+		TextSize             = 13,
+		ZIndex               = 101,
+		Parent               = notif,
+	})
+
+	-- content text
+	newInst("TextLabel", {
+		Size                 = UDim2.new(1, -58, 0, 16),
+		Position             = UDim2.new(0, 52, 0, 28),
+		BackgroundTransparency = 1,
+		Text                 = content,
+		TextColor3           = Color3.fromRGB(130,110,170),
+		TextXAlignment       = Enum.TextXAlignment.Left,
+		Font                 = Enum.Font.Gotham,
+		TextSize             = 11,
 		ZIndex               = 101,
 		Parent               = notif,
 	})
 
 	-- slide in from right
-	tween:Create(notif, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Position = UDim2.new(1, -220, 0, 10)
+	tween:Create(notif, TweenInfo.new(0.38, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Position = UDim2.new(1, -240, 1, -(slot * 62))
 	}):Play()
 
-	task.delay(2.8, function()
-		tween:Create(notif, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-			Position = UDim2.new(1, 20, 0, 10)
+	task.delay(3.2, function()
+		tween:Create(notif, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Position = UDim2.new(1, 20, 1, -(slot * 62))
 		}):Play()
-		task.delay(0.35, function() notif:Destroy() end)
+		task.delay(0.3, function()
+			notif:Destroy()
+			notifActive = math.max(0, notifActive - 1)
+		end)
 	end)
 end
 
 function NaruUI:CreateWindow(cfg)
 	cfg = cfg or {}
+
+	local me = game.Players.LocalPlayer
+
+	-- check if UI already loaded
+	if me.PlayerGui:FindFirstChild("NaruUI") then
+		me.PlayerGui.NaruUI:Destroy()
+	end
+
 	local title     = cfg.Name or "Naru Hub"
 	local toggleKey = cfg.ToggleKey or Enum.KeyCode.RightBracket
-	local me        = game.Players.LocalPlayer
 
 	local screen = newInst("ScreenGui", {
-		Name              = "NaruUI",
-		ResetOnSpawn      = false,
-		ZIndexBehavior    = Enum.ZIndexBehavior.Sibling,
-		Parent            = me.PlayerGui,
+		Name           = "NaruUI",
+		ResetOnSpawn   = false,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+		Parent         = me.PlayerGui,
 	})
 
-	-- glow behind window
+	-- glow
 	local glowFrame = newInst("Frame", {
-		Size                  = UDim2.new(0, 398, 0, 500),
-		Position              = UDim2.new(0.5, -199, 0.5, -250),
+		Size                  = UDim2.new(0, 458, 0, 510),
+		Position              = UDim2.new(0.5, -229, 0.5, -255),
 		BackgroundColor3      = Color3.fromRGB(100,50,220),
 		BackgroundTransparency= 0.88,
 		BorderSizePixel       = 0,
@@ -134,10 +191,10 @@ function NaruUI:CreateWindow(cfg)
 	})
 	corner(20, glowFrame)
 
-	-- main window
+	-- window — wider and taller
 	local win = newInst("Frame", {
-		Size             = UDim2.new(0, 380, 0, 480),
-		Position         = UDim2.new(0.5, -190, 0.5, -240),
+		Size             = UDim2.new(0, 440, 0, 490),
+		Position         = UDim2.new(0.5, -220, 0.5, -245),
 		BackgroundColor3 = C.bg,
 		BorderSizePixel  = 0,
 		ZIndex           = 1,
@@ -147,38 +204,39 @@ function NaruUI:CreateWindow(cfg)
 	corner(16, win)
 	stroke(Color3.fromRGB(100,50,220), 1.5, win)
 
-	-- entrance animation
-	win.Size = UDim2.new(0, 320, 0, 400)
+	-- entrance anim
+	win.Size                  = UDim2.new(0,370,0,420)
 	win.BackgroundTransparency = 1
 	task.defer(function()
 		tween:Create(win, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-			Size = UDim2.new(0, 380, 0, 480),
+			Size = UDim2.new(0,440,0,490),
 			BackgroundTransparency = 0,
 		}):Play()
 	end)
 
 	-- topbar
 	local topbar = newInst("Frame", {
-		Size             = UDim2.new(1, 0, 0, 42),
+		Size             = UDim2.new(1,0,0,44),
 		BackgroundColor3 = C.bgDeep,
 		BorderSizePixel  = 0,
 		ZIndex           = 2,
 		Parent           = win,
 	})
 	corner(16, topbar)
+	-- fill bottom corners of topbar
 	newInst("Frame", {
-		Size             = UDim2.new(1, 0, 0, 16),
-		Position         = UDim2.new(0, 0, 1, -16),
+		Size             = UDim2.new(1,0,0,16),
+		Position         = UDim2.new(0,0,1,-16),
 		BackgroundColor3 = C.bgDeep,
 		BorderSizePixel  = 0,
 		ZIndex           = 2,
 		Parent           = topbar,
 	})
 
-	-- RED dot = X (close)
+	-- red = close
 	local dotRed = newInst("TextButton", {
-		Size             = UDim2.new(0, 12, 0, 12),
-		Position         = UDim2.new(0, 12, 0.5, -6),
+		Size             = UDim2.new(0,12,0,12),
+		Position         = UDim2.new(0,14,0.5,-6),
 		BackgroundColor3 = Color3.fromRGB(255,95,87),
 		BorderSizePixel  = 0,
 		Text             = "",
@@ -187,10 +245,10 @@ function NaruUI:CreateWindow(cfg)
 	})
 	corner(99, dotRed)
 
-	-- YELLOW dot = minimize
+	-- yellow = minimize
 	local dotYellow = newInst("TextButton", {
-		Size             = UDim2.new(0, 12, 0, 12),
-		Position         = UDim2.new(0, 30, 0.5, -6),
+		Size             = UDim2.new(0,12,0,12),
+		Position         = UDim2.new(0,32,0.5,-6),
 		BackgroundColor3 = Color3.fromRGB(255,189,46),
 		BorderSizePixel  = 0,
 		Text             = "",
@@ -199,10 +257,10 @@ function NaruUI:CreateWindow(cfg)
 	})
 	corner(99, dotYellow)
 
-	-- GREEN dot (decorative)
+	-- green = decorative
 	local dotGreen = newInst("Frame", {
-		Size             = UDim2.new(0, 12, 0, 12),
-		Position         = UDim2.new(0, 48, 0.5, -6),
+		Size             = UDim2.new(0,12,0,12),
+		Position         = UDim2.new(0,50,0.5,-6),
 		BackgroundColor3 = Color3.fromRGB(40,202,65),
 		BorderSizePixel  = 0,
 		ZIndex           = 4,
@@ -210,15 +268,16 @@ function NaruUI:CreateWindow(cfg)
 	})
 	corner(99, dotGreen)
 
-	-- title (no squares, clean text)
+	-- centered title
 	newInst("TextLabel", {
-		Size                 = UDim2.new(1, -80, 1, 0),
-		Position             = UDim2.new(0, 70, 0, 0),
+		Size                 = UDim2.new(1,0,1,0),
+		Position             = UDim2.new(0,0,0,0),
 		BackgroundTransparency = 1,
 		Text                 = title,
 		TextColor3           = C.purple,
 		TextScaled           = true,
 		Font                 = Enum.Font.GothamBold,
+		TextXAlignment       = Enum.TextXAlignment.Center,
 		ZIndex               = 3,
 		Parent               = topbar,
 	})
@@ -256,8 +315,8 @@ function NaruUI:CreateWindow(cfg)
 
 	-- tab bar
 	local tabBar = newInst("Frame", {
-		Size             = UDim2.new(1, 0, 0, 36),
-		Position         = UDim2.new(0, 0, 0, 42),
+		Size             = UDim2.new(1,0,0,38),
+		Position         = UDim2.new(0,0,0,44),
 		BackgroundColor3 = C.bgDeep,
 		BorderSizePixel  = 0,
 		ZIndex           = 2,
@@ -266,25 +325,25 @@ function NaruUI:CreateWindow(cfg)
 	stroke(Color3.fromRGB(100,50,220), 1, tabBar)
 	listLayout(tabBar, 0, Enum.FillDirection.Horizontal)
 
-	-- body scroll
+	-- body
 	local bodyFrame = newInst("ScrollingFrame", {
-		Size                  = UDim2.new(1, 0, 1, -100),
-		Position              = UDim2.new(0, 0, 0, 78),
+		Size                  = UDim2.new(1,0,1,-104),
+		Position              = UDim2.new(0,0,0,82),
 		BackgroundTransparency= 1,
 		BorderSizePixel       = 0,
 		ScrollBarThickness    = 2,
 		ScrollBarImageColor3  = C.border,
-		CanvasSize            = UDim2.new(0, 0, 0, 0),
+		CanvasSize            = UDim2.new(0,0,0,0),
 		ZIndex                = 2,
 		ClipsDescendants      = false,
 		Parent                = win,
 	})
-	padding(8, 8, 8, 8, bodyFrame)
+	padding(8,8,8,8, bodyFrame)
 
 	-- footer
 	newInst("TextLabel", {
-		Size                 = UDim2.new(1, 0, 0, 20),
-		Position             = UDim2.new(0, 0, 1, -24),
+		Size                 = UDim2.new(1,0,0,22),
+		Position             = UDim2.new(0,0,1,-26),
 		BackgroundTransparency = 1,
 		Text                 = "made by Naru",
 		TextColor3           = C.purpleFade,
@@ -294,51 +353,55 @@ function NaruUI:CreateWindow(cfg)
 		Parent               = win,
 	})
 
-	-- minimizer body wrapper (we hide everything below topbar)
-	local minimized  = false
-	local bodyHeight = 480
-
+	-- minimize
+	local minimized = false
 	dotYellow.MouseButton1Click:Connect(function()
 		minimized = not minimized
 		if minimized then
-			tween:Create(win, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-				Size = UDim2.new(0, 380, 0, 42)
-			}):Play()
-			tween:Create(glowFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-				Size = UDim2.new(0, 398, 0, 58)
-			}):Play()
 			bodyFrame.Visible = false
 			tabBar.Visible    = false
+			tween:Create(win, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Size = UDim2.new(0,440,0,44)
+			}):Play()
+			tween:Create(glowFrame, TweenInfo.new(0.3), {Size = UDim2.new(0,458,0,60)}):Play()
 		else
 			bodyFrame.Visible = true
 			tabBar.Visible    = true
 			tween:Create(win, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-				Size = UDim2.new(0, 380, 0, 480)
+				Size = UDim2.new(0,440,0,490)
 			}):Play()
 			tween:Create(glowFrame, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-				Size = UDim2.new(0, 398, 0, 500)
+				Size = UDim2.new(0,458,0,510)
 			}):Play()
 		end
 	end)
 
+	-- close
 	dotRed.MouseButton1Click:Connect(function()
 		tween:Create(win, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-			Size                  = UDim2.new(0, 300, 0, 0),
+			Size                  = UDim2.new(0,300,0,0),
 			BackgroundTransparency= 1,
 		}):Play()
 		tween:Create(glowFrame, TweenInfo.new(0.25), {BackgroundTransparency = 1}):Play()
 		task.delay(0.3, function() screen:Destroy() end)
 	end)
 
-	-- tab system
-	local tabList   = {}
-	local activeTab = nil
-	local tabCount  = 0
+	-- canvas auto size
+	runner.Heartbeat:Connect(function()
+		local total = 0
+		for _, c in pairs(bodyFrame:GetChildren()) do
+			if c:IsA("GuiObject") and c.Visible then
+				total = total + c.AbsoluteSize.Y + 6
+			end
+		end
+		bodyFrame.CanvasSize = UDim2.new(0,0,0,total+16)
+	end)
 
+	-- keyboard toggle
 	local isMobile = input.TouchEnabled and not input.KeyboardEnabled
 	if not isMobile then
-		task.delay(0.7, function()
-			notify(screen, "Press "..tostring(toggleKey.Name).." to toggle", C.purple)
+		task.delay(0.8, function()
+			notify(screen, "Naru Hub", "Press "..tostring(toggleKey.Name).." to toggle", C.purple)
 		end)
 		input.InputBegan:Connect(function(i, gp)
 			if gp then return end
@@ -349,16 +412,9 @@ function NaruUI:CreateWindow(cfg)
 		end)
 	end
 
-	-- canvas auto-resize
-	runner.Heartbeat:Connect(function()
-		local total = 0
-		for _, c in pairs(bodyFrame:GetChildren()) do
-			if c:IsA("GuiObject") and c.Visible then
-				total = total + c.AbsoluteSize.Y + 6
-			end
-		end
-		bodyFrame.CanvasSize = UDim2.new(0, 0, 0, total + 16)
-	end)
+	-- tab count for layout
+	local tabCount  = 0
+	local activeTab = nil
 
 	local winObj = {}
 
@@ -366,7 +422,7 @@ function NaruUI:CreateWindow(cfg)
 		tabCount = tabCount + 1
 
 		local tabBtn = newInst("TextButton", {
-			Size             = UDim2.new(0, 90, 1, 0),
+			Size             = UDim2.new(0,100,1,0),
 			BackgroundColor3 = C.bgDeep,
 			BorderSizePixel  = 0,
 			Text             = tabName,
@@ -378,17 +434,17 @@ function NaruUI:CreateWindow(cfg)
 		})
 
 		local underline = newInst("Frame", {
-			Size             = UDim2.new(1, 0, 0, 2),
-			Position         = UDim2.new(0, 0, 1, -2),
-			BackgroundColor3 = C.border,
-			BorderSizePixel  = 0,
-			BackgroundTransparency = 1,
-			ZIndex           = 4,
-			Parent           = tabBtn,
+			Size                  = UDim2.new(1,0,0,2),
+			Position              = UDim2.new(0,0,1,-2),
+			BackgroundColor3      = C.border,
+			BorderSizePixel       = 0,
+			BackgroundTransparency= 1,
+			ZIndex                = 4,
+			Parent                = tabBtn,
 		})
 
 		local tabContainer = newInst("Frame", {
-			Size                 = UDim2.new(1, 0, 0, 0),
+			Size                 = UDim2.new(1,0,0,0),
 			BackgroundTransparency = 1,
 			BorderSizePixel      = 0,
 			Visible              = false,
@@ -409,8 +465,8 @@ function NaruUI:CreateWindow(cfg)
 			end
 			activeTab = entry
 			tabContainer.Visible = true
-			tween:Create(tabBtn,   TweenInfo.new(0.15), {TextColor3 = C.textMain}):Play()
-			tween:Create(underline,TweenInfo.new(0.15), {BackgroundTransparency = 0}):Play()
+			tween:Create(tabBtn,    TweenInfo.new(0.15), {TextColor3 = C.textMain}):Play()
+			tween:Create(underline, TweenInfo.new(0.15), {BackgroundTransparency = 0}):Play()
 		end
 
 		if tabCount == 1 then activate() end
@@ -420,7 +476,7 @@ function NaruUI:CreateWindow(cfg)
 
 		local function makeRow(h, autoY)
 			local r = newInst("Frame", {
-				Size             = autoY and UDim2.new(1, 0, 0, 10) or UDim2.new(1, 0, 0, h or 46),
+				Size             = autoY and UDim2.new(1,0,0,10) or UDim2.new(1,0,0,h or 48),
 				BackgroundColor3 = C.bgRow,
 				BorderSizePixel  = 0,
 				ZIndex           = 3,
@@ -435,14 +491,14 @@ function NaruUI:CreateWindow(cfg)
 
 		local function rowLabel(txt, sub, parent)
 			local wrap = newInst("Frame", {
-				Size                 = UDim2.new(0.6, 0, 0, sub and 36 or 20),
-				Position             = UDim2.new(0, 10, 0, sub and 6 or 12),
+				Size                 = UDim2.new(0.6,0,0,sub and 38 or 22),
+				Position             = UDim2.new(0,12,0,sub and 6 or 13),
 				BackgroundTransparency = 1,
 				ZIndex               = 4,
 				Parent               = parent,
 			})
 			newInst("TextLabel", {
-				Size                 = UDim2.new(1, 0, 0, 16),
+				Size                 = UDim2.new(1,0,0,16),
 				BackgroundTransparency = 1,
 				Text                 = txt,
 				TextColor3           = C.textMain,
@@ -454,8 +510,8 @@ function NaruUI:CreateWindow(cfg)
 			})
 			if sub then
 				newInst("TextLabel", {
-					Size                 = UDim2.new(1, 0, 0, 14),
-					Position             = UDim2.new(0, 0, 0, 18),
+					Size                 = UDim2.new(1,0,0,14),
+					Position             = UDim2.new(0,0,0,19),
 					BackgroundTransparency = 1,
 					Text                 = sub,
 					TextColor3           = C.textDim,
@@ -473,12 +529,12 @@ function NaruUI:CreateWindow(cfg)
 			local val = cfg2.CurrentValue or false
 			if cfg2.Flag then flags[cfg2.Flag] = val end
 
-			local row = makeRow(46)
+			local row = makeRow(48)
 			rowLabel(cfg2.Name or "Toggle", cfg2.Description, row)
 
 			local track = newInst("Frame", {
-				Size             = UDim2.new(0, 40, 0, 22),
-				Position         = UDim2.new(1, -50, 0.5, -11),
+				Size             = UDim2.new(0,42,0,24),
+				Position         = UDim2.new(1,-54,0.5,-12),
 				BackgroundColor3 = Color3.fromRGB(26,26,46),
 				BorderSizePixel  = 0,
 				ZIndex           = 4,
@@ -488,8 +544,8 @@ function NaruUI:CreateWindow(cfg)
 			stroke(Color3.fromRGB(100,50,220), 1, track)
 
 			local thumb = newInst("Frame", {
-				Size             = UDim2.new(0, 16, 0, 16),
-				Position         = UDim2.new(0, 2, 0.5, -8),
+				Size             = UDim2.new(0,18,0,18),
+				Position         = UDim2.new(0,2,0.5,-9),
 				BackgroundColor3 = C.purpleFade,
 				BorderSizePixel  = 0,
 				ZIndex           = 5,
@@ -501,23 +557,24 @@ function NaruUI:CreateWindow(cfg)
 				val = v
 				if cfg2.Flag then flags[cfg2.Flag] = v end
 				if v then
-					tween:Create(thumb, TweenInfo.new(0.18), {Position = UDim2.new(0,20,0.5,-8), BackgroundColor3 = C.purple}):Play()
-					tween:Create(track, TweenInfo.new(0.18), {BackgroundColor3 = Color3.fromRGB(42,26,78)}):Play()
+					tween:Create(thumb, TweenInfo.new(0.18), {Position=UDim2.new(0,22,0.5,-9), BackgroundColor3=C.purple}):Play()
+					tween:Create(track, TweenInfo.new(0.18), {BackgroundColor3=Color3.fromRGB(42,26,78)}):Play()
 				else
-					tween:Create(thumb, TweenInfo.new(0.18), {Position = UDim2.new(0,2,0.5,-8), BackgroundColor3 = C.purpleFade}):Play()
-					tween:Create(track, TweenInfo.new(0.18), {BackgroundColor3 = Color3.fromRGB(26,26,46)}):Play()
+					tween:Create(thumb, TweenInfo.new(0.18), {Position=UDim2.new(0,2,0.5,-9), BackgroundColor3=C.purpleFade}):Play()
+					tween:Create(track, TweenInfo.new(0.18), {BackgroundColor3=Color3.fromRGB(26,26,46)}):Play()
 				end
 				if cfg2.Callback then cfg2.Callback(v) end
-				notify(screen, (v and "Enabled" or "Disabled")..": "..(cfg2.Name or ""), v and C.green or C.red)
+				notify(screen,
+					cfg2.Name or "Toggle",
+					v and "Enabled" or "Disabled",
+					v and C.green or C.red
+				)
 			end
 
 			setVal(val)
-
 			track.InputBegan:Connect(function(i)
 				if i.UserInputType == Enum.UserInputType.MouseButton1
-				or i.UserInputType == Enum.UserInputType.Touch then
-					setVal(not val)
-				end
+				or i.UserInputType == Enum.UserInputType.Touch then setVal(not val) end
 			end)
 
 			local obj = {}
@@ -528,12 +585,12 @@ function NaruUI:CreateWindow(cfg)
 
 		function tabObj:CreateButton(cfg2)
 			cfg2 = cfg2 or {}
-			local row = makeRow(46)
+			local row = makeRow(48)
 			rowLabel(cfg2.Name or "Button", cfg2.Description, row)
 
 			local btn2 = newInst("TextButton", {
-				Size             = UDim2.new(0, 62, 0, 28),
-				Position         = UDim2.new(1, -72, 0.5, -14),
+				Size             = UDim2.new(0,66,0,30),
+				Position         = UDim2.new(1,-78,0.5,-15),
 				BackgroundColor3 = Color3.fromRGB(26,14,46),
 				BorderSizePixel  = 0,
 				Text             = cfg2.ButtonText or "Run",
@@ -547,29 +604,33 @@ function NaruUI:CreateWindow(cfg)
 			stroke(cfg2.Danger and Color3.fromRGB(160,48,48) or C.border, 1, btn2)
 
 			btn2.MouseButton1Click:Connect(function()
-				tween:Create(btn2, TweenInfo.new(0.07), {Size = UDim2.new(0,56,0,24), Position = UDim2.new(1,-69,0.5,-12)}):Play()
+				tween:Create(btn2, TweenInfo.new(0.07), {Size=UDim2.new(0,58,0,26), Position=UDim2.new(1,-74,0.5,-13)}):Play()
 				task.delay(0.07, function()
-					tween:Create(btn2, TweenInfo.new(0.12, Enum.EasingStyle.Back), {Size = UDim2.new(0,62,0,28), Position = UDim2.new(1,-72,0.5,-14)}):Play()
+					tween:Create(btn2, TweenInfo.new(0.12, Enum.EasingStyle.Back), {Size=UDim2.new(0,66,0,30), Position=UDim2.new(1,-78,0.5,-15)}):Play()
 				end)
 				if cfg2.Callback then cfg2.Callback() end
-				notify(screen, cfg2.Name or "Button pressed", cfg2.Danger and C.red or C.purple)
+				notify(screen,
+					cfg2.Name or "Button",
+					cfg2.NotifContent or "Button pressed",
+					cfg2.Danger and C.red or C.purple
+				)
 			end)
 		end
 
 		function tabObj:CreateSlider(cfg2)
 			cfg2 = cfg2 or {}
-			local range  = cfg2.Range or {0, 100}
+			local range  = cfg2.Range or {0,100}
 			local inc    = cfg2.Increment or 1
 			local suffix = cfg2.Suffix or ""
 			local cur    = cfg2.CurrentValue or range[1]
 			if cfg2.Flag then flags[cfg2.Flag] = cur end
 
-			local row = makeRow(62)
+			local row = makeRow(64)
 			rowLabel(cfg2.Name or "Slider", nil, row)
 
 			local valLbl = newInst("TextLabel", {
-				Size                 = UDim2.new(0, 70, 0, 18),
-				Position             = UDim2.new(1, -78, 0, 12),
+				Size                 = UDim2.new(0,80,0,18),
+				Position             = UDim2.new(1,-88,0,14),
 				BackgroundTransparency = 1,
 				Text                 = tostring(cur).." "..suffix,
 				TextColor3           = C.purple,
@@ -581,8 +642,8 @@ function NaruUI:CreateWindow(cfg)
 			})
 
 			local trackBg = newInst("Frame", {
-				Size             = UDim2.new(1, -20, 0, 4),
-				Position         = UDim2.new(0, 10, 0, 42),
+				Size             = UDim2.new(1,-22,0,4),
+				Position         = UDim2.new(0,11,0,44),
 				BackgroundColor3 = Color3.fromRGB(30,20,50),
 				BorderSizePixel  = 0,
 				ZIndex           = 4,
@@ -591,7 +652,7 @@ function NaruUI:CreateWindow(cfg)
 			corner(99, trackBg)
 
 			local fill = newInst("Frame", {
-				Size             = UDim2.new(0, 0, 1, 0),
+				Size             = UDim2.new(0,0,1,0),
 				BackgroundColor3 = C.purple,
 				BorderSizePixel  = 0,
 				ZIndex           = 5,
@@ -600,8 +661,8 @@ function NaruUI:CreateWindow(cfg)
 			corner(99, fill)
 
 			local knob = newInst("Frame", {
-				Size             = UDim2.new(0, 16, 0, 16),
-				Position         = UDim2.new(0, 0, 0.5, -8),
+				Size             = UDim2.new(0,16,0,16),
+				Position         = UDim2.new(0,0,0.5,-8),
 				BackgroundColor3 = C.purple,
 				BorderSizePixel  = 0,
 				ZIndex           = 6,
@@ -611,12 +672,12 @@ function NaruUI:CreateWindow(cfg)
 			stroke(C.bgDeep, 2, knob)
 
 			local function setSlider(v)
-				v = math.clamp(math.round(v / inc) * inc, range[1], range[2])
+				v = math.clamp(math.round(v/inc)*inc, range[1], range[2])
 				cur = v
 				if cfg2.Flag then flags[cfg2.Flag] = v end
-				local pct = (v - range[1]) / (range[2] - range[1])
-				fill.Size     = UDim2.new(pct, 0, 1, 0)
-				knob.Position = UDim2.new(pct, -8, 0.5, -8)
+				local pct = (v-range[1])/(range[2]-range[1])
+				fill.Size     = UDim2.new(pct,0,1,0)
+				knob.Position = UDim2.new(pct,-8,0.5,-8)
 				valLbl.Text   = tostring(v).." "..suffix
 				if cfg2.Callback then cfg2.Callback(v) end
 			end
@@ -626,21 +687,17 @@ function NaruUI:CreateWindow(cfg)
 			local sliding = false
 			trackBg.InputBegan:Connect(function(i)
 				if i.UserInputType == Enum.UserInputType.MouseButton1
-				or i.UserInputType == Enum.UserInputType.Touch then
-					sliding = true
-				end
+				or i.UserInputType == Enum.UserInputType.Touch then sliding = true end
 			end)
 			input.InputEnded:Connect(function(i)
 				if i.UserInputType == Enum.UserInputType.MouseButton1
-				or i.UserInputType == Enum.UserInputType.Touch then
-					sliding = false
-				end
+				or i.UserInputType == Enum.UserInputType.Touch then sliding = false end
 			end)
 			input.InputChanged:Connect(function(i)
 				if sliding and (i.UserInputType == Enum.UserInputType.MouseMovement
 				or i.UserInputType == Enum.UserInputType.Touch) then
 					local rel = (i.Position.X - trackBg.AbsolutePosition.X) / trackBg.AbsoluteSize.X
-					setSlider(range[1] + (range[2] - range[1]) * math.clamp(rel, 0, 1))
+					setSlider(range[1] + (range[2]-range[1]) * math.clamp(rel,0,1))
 				end
 			end)
 
@@ -657,20 +714,18 @@ function NaruUI:CreateWindow(cfg)
 			if cfg2.Flag then flags[cfg2.Flag] = cur2 end
 			local open    = false
 
-			-- row uses AutomaticSize so dropdown expanding pushes rows below it down
 			local row = makeRow(nil, true)
-			padding(10, 10, 10, 10, row)
+			padding(10,10,10,10, row)
 			listLayout(row, 6)
 
 			local topLine = newInst("Frame", {
-				Size                 = UDim2.new(1, 0, 0, 20),
+				Size                 = UDim2.new(1,0,0,20),
 				BackgroundTransparency = 1,
 				ZIndex               = 4,
 				Parent               = row,
 			})
-
 			newInst("TextLabel", {
-				Size                 = UDim2.new(0.6, 0, 1, 0),
+				Size                 = UDim2.new(0.6,0,1,0),
 				BackgroundTransparency = 1,
 				Text                 = cfg2.Name or "Dropdown",
 				TextColor3           = C.textMain,
@@ -682,7 +737,7 @@ function NaruUI:CreateWindow(cfg)
 			})
 
 			local dropBtn = newInst("TextButton", {
-				Size             = UDim2.new(1, 0, 0, 28),
+				Size             = UDim2.new(1,0,0,30),
 				BackgroundColor3 = Color3.fromRGB(26,14,46),
 				BorderSizePixel  = 0,
 				Text             = cur2.."  v",
@@ -695,15 +750,14 @@ function NaruUI:CreateWindow(cfg)
 			corner(8, dropBtn)
 			stroke(C.border, 1, dropBtn)
 
-			-- menu is a child of the row so it expands the row's AutomaticSize
 			local menuFrame = newInst("Frame", {
-				Size                 = UDim2.new(1, 0, 0, 0),
-				BackgroundColor3     = Color3.fromRGB(19,16,38),
-				BorderSizePixel      = 0,
-				ZIndex               = 5,
-				ClipsDescendants     = true,
-				Visible              = false,
-				Parent               = row,
+				Size             = UDim2.new(1,0,0,0),
+				BackgroundColor3 = Color3.fromRGB(19,16,38),
+				BorderSizePixel  = 0,
+				ZIndex           = 5,
+				ClipsDescendants = true,
+				Visible          = false,
+				Parent           = row,
 			})
 			corner(8, menuFrame)
 			stroke(C.border, 1, menuFrame)
@@ -711,10 +765,10 @@ function NaruUI:CreateWindow(cfg)
 
 			for _, opt in ipairs(options) do
 				local ob = newInst("TextButton", {
-					Size                 = UDim2.new(1, 0, 0, 28),
+					Size                 = UDim2.new(1,0,0,30),
 					BackgroundTransparency = 1,
 					Text                 = opt,
-					TextColor3           = opt == cur2 and C.purple or C.textDim,
+					TextColor3           = opt==cur2 and C.purple or C.textDim,
 					Font                 = Enum.Font.Gotham,
 					TextSize             = 11,
 					ZIndex               = 6,
@@ -724,18 +778,21 @@ function NaruUI:CreateWindow(cfg)
 					cur2 = opt
 					if cfg2.Flag then flags[cfg2.Flag] = opt end
 					dropBtn.Text = opt.."  v"
-					-- close
 					open = false
-					tween:Create(menuFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Size = UDim2.new(1,0,0,0)}):Play()
-					task.delay(0.22, function() menuFrame.Visible = false end)
+					tween:Create(menuFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad), {Size=UDim2.new(1,0,0,0)}):Play()
+					task.delay(0.2, function() menuFrame.Visible = false end)
 					if cfg2.Callback then cfg2.Callback(opt) end
-					notify(screen, (cfg2.Name or "Dropdown")..": "..opt, C.purple)
+					notify(screen,
+						cfg2.Name or "Dropdown",
+						"Selected: "..opt,
+						C.purple
+					)
 				end)
 				ob.MouseEnter:Connect(function()
-					tween:Create(ob, TweenInfo.new(0.1), {BackgroundTransparency = 0.7, BackgroundColor3 = C.purpleFade}):Play()
+					tween:Create(ob, TweenInfo.new(0.1), {BackgroundTransparency=0.7, BackgroundColor3=C.purpleFade}):Play()
 				end)
 				ob.MouseLeave:Connect(function()
-					tween:Create(ob, TweenInfo.new(0.1), {BackgroundTransparency = 1}):Play()
+					tween:Create(ob, TweenInfo.new(0.1), {BackgroundTransparency=1}):Play()
 				end)
 			end
 
@@ -743,31 +800,27 @@ function NaruUI:CreateWindow(cfg)
 				open = not open
 				if open then
 					menuFrame.Visible = true
-					menuFrame.Size    = UDim2.new(1, 0, 0, 0)
+					menuFrame.Size    = UDim2.new(1,0,0,0)
 					tween:Create(menuFrame, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-						Size = UDim2.new(1, 0, 0, #options * 28)
+						Size = UDim2.new(1,0,0,#options*30)
 					}):Play()
 					dropBtn.Text = cur2.."  ^"
 				else
-					tween:Create(menuFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad), {Size = UDim2.new(1,0,0,0)}):Play()
+					tween:Create(menuFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad), {Size=UDim2.new(1,0,0,0)}):Play()
 					task.delay(0.2, function() menuFrame.Visible = false end)
 					dropBtn.Text = cur2.."  v"
 				end
 			end)
 
 			local obj = {}
-			function obj:Set(v)
-				cur2 = v
-				dropBtn.Text = v.."  v"
-				if cfg2.Flag then flags[cfg2.Flag] = v end
-			end
+			function obj:Set(v) cur2=v; dropBtn.Text=v.."  v"; if cfg2.Flag then flags[cfg2.Flag]=v end end
 			function obj:Get() return cur2 end
 			return obj
 		end
 
 		function tabObj:CreateSectionLabel(txt)
 			local lbl = newInst("TextLabel", {
-				Size                 = UDim2.new(1, 0, 0, 18),
+				Size                 = UDim2.new(1,0,0,18),
 				BackgroundTransparency = 1,
 				Text                 = txt,
 				TextColor3           = C.textDim,
@@ -777,14 +830,17 @@ function NaruUI:CreateWindow(cfg)
 				ZIndex               = 3,
 				Parent               = tabContainer,
 			})
-			padding(0, 0, 6, 0, lbl)
+			padding(0,0,6,0, lbl)
 		end
 
 		return tabObj
 	end
 
 	function winObj:GetFlag(flag) return flags[flag] end
-	function winObj:Notify(msg, col) notify(screen, msg, col) end
+
+	function winObj:Notify(title2, content2, col2)
+		notify(screen, title2, content2, col2)
+	end
 
 	return winObj
 end
